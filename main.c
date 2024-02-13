@@ -21,10 +21,18 @@
 #include <pspgu.h>
 #include <pspgum.h>
 #include <psprtc.h>
+#include <pspsdk.h>
+#include "kernel_prx/kernel_prx.h"
+#include "kernel_prx/kprx_inc.h"
 
 /* Define the module info section */
 PSP_MODULE_INFO("FuseID Dumper", 0, 1, 0);
 
+
+char* stpcpy(char * dst, const char * src)
+{
+	return memcpy(dst, src, strlen(src));
+}
 
 /* Exit callback */
 int exit_callback(int arg1, int arg2, void *common)
@@ -54,68 +62,9 @@ int SetupCallbacks(void)
     return thid;
 }
 
+/* Graphics stuff */
 
-/* Graphics stuff, based on cube sample */
-
-static unsigned int __attribute__((aligned(16))) list[262144];
-
-struct Vertex
-{
-    float u, v;
-    unsigned int color;
-    float x,y,z;
-};
-
-struct Vertex __attribute__((aligned(16))) vertices[12*3] =
-{
-    {0, 0, 0xff7f0000,-1,-1, 1}, // 0
-    {1, 0, 0xff7f0000,-1, 1, 1}, // 4
-    {1, 1, 0xff7f0000, 1, 1, 1}, // 5
-    
-    {0, 0, 0xff7f0000,-1,-1, 1}, // 0
-    {1, 1, 0xff7f0000, 1, 1, 1}, // 5
-    {0, 1, 0xff7f0000, 1,-1, 1}, // 1
-    
-    {0, 0, 0xff7f0000,-1,-1,-1}, // 3
-    {1, 0, 0xff7f0000, 1,-1,-1}, // 2
-    {1, 1, 0xff7f0000, 1, 1,-1}, // 6
-    
-    {0, 0, 0xff7f0000,-1,-1,-1}, // 3
-    {1, 1, 0xff7f0000, 1, 1,-1}, // 6
-    {0, 1, 0xff7f0000,-1, 1,-1}, // 7
-    
-    {0, 0, 0xff007f00, 1,-1,-1}, // 0
-    {1, 0, 0xff007f00, 1,-1, 1}, // 3
-    {1, 1, 0xff007f00, 1, 1, 1}, // 7
-    
-    {0, 0, 0xff007f00, 1,-1,-1}, // 0
-    {1, 1, 0xff007f00, 1, 1, 1}, // 7
-    {0, 1, 0xff007f00, 1, 1,-1}, // 4
-    
-    {0, 0, 0xff007f00,-1,-1,-1}, // 0
-    {1, 0, 0xff007f00,-1, 1,-1}, // 3
-    {1, 1, 0xff007f00,-1, 1, 1}, // 7
-    
-    {0, 0, 0xff007f00,-1,-1,-1}, // 0
-    {1, 1, 0xff007f00,-1, 1, 1}, // 7
-    {0, 1, 0xff007f00,-1,-1, 1}, // 4
-    
-    {0, 0, 0xff00007f,-1, 1,-1}, // 0
-    {1, 0, 0xff00007f, 1, 1,-1}, // 1
-    {1, 1, 0xff00007f, 1, 1, 1}, // 2
-    
-    {0, 0, 0xff00007f,-1, 1,-1}, // 0
-    {1, 1, 0xff00007f, 1, 1, 1}, // 2
-    {0, 1, 0xff00007f,-1, 1, 1}, // 3
-    
-    {0, 0, 0xff00007f,-1,-1,-1}, // 4
-    {1, 0, 0xff00007f,-1,-1, 1}, // 7
-    {1, 1, 0xff00007f, 1,-1, 1}, // 6
-    
-    {0, 0, 0xff00007f,-1,-1,-1}, // 4
-    {1, 1, 0xff00007f, 1,-1, 1}, // 6
-    {0, 1, 0xff00007f, 1,-1,-1}, // 5
-};
+static unsigned int __attribute__((aligned(16))) list[0x10000];
 
 #define BUF_WIDTH (512)
 #define SCR_WIDTH (480)
@@ -152,42 +101,12 @@ static void SetupGu(void)
 
 static void DrawStuff(void)
 {
-    static int val = 0;
-
-    sceGuStart(GU_DIRECT,list);
-
-    // clear screen
-    
-    sceGuClearColor(0xff554433);
+    sceGuStart(GU_DIRECT, list);
+    sceGuClearColor(0xFF880808);
     sceGuClearDepth(0);
     sceGuClear(GU_COLOR_BUFFER_BIT|GU_DEPTH_BUFFER_BIT);
-    
-    // setup matrices for cube
-    
-    sceGumMatrixMode(GU_PROJECTION);
-    sceGumLoadIdentity();
-    sceGumPerspective(75.0f,16.0f/9.0f,0.5f,1000.0f);
-    
-    sceGumMatrixMode(GU_VIEW);
-    sceGumLoadIdentity();
-    
-    sceGumMatrixMode(GU_MODEL);
-    sceGumLoadIdentity();
-
-    ScePspFVector3 pos = { 0, 0, -2.5f };
-    ScePspFVector3 rot = { val * 0.79f * (M_PI/180.0f), val * 0.98f * (M_PI/180.0f), val * 1.32f * (M_PI/180.0f) };
-    sceGumRotateXYZ(&rot);
-    sceGumTranslate(&pos);
-    
-    // draw cube
-    
-    sceGuAmbientColor(0xffffffff);
-    sceGumDrawArray(GU_TRIANGLES,GU_TEXTURE_32BITF|GU_COLOR_8888|GU_VERTEX_32BITF|GU_TRANSFORM_3D,12*3,0,vertices);
-    
     sceGuFinish();
-    sceGuSync(0,0);
-
-    val ++;
+    sceGuSync(0, 0);
 }
 
 
@@ -286,14 +205,31 @@ int main(int argc, char *argv[])
     SetupGu();
     
     fuse = pspXploitKernelRead64(0xBC100090);
+    
+    // if Kernel read exploit fails, try kernel.prx (e.g. Adrenaline)
+    if (fuse == 0xFFFFFFFFFFFFFFFF)
+    {
+        fp = fopen("kernel.prx", "wb");
+        fwrite(kernel_prx, sizeof(kernel_prx), 1, fp);
+        fclose(fp);
+
+        if (pspSdkLoadStartModule("kernel.prx", PSP_MEMORY_PARTITION_KERNEL) < 0)
+        {
+            ShowMessageDialog("Error: pspSdkLoadStartModule()");
+            sceKernelExitGame();
+        }
+        else fuse = prxSysregGetFuseId();
+        
+        sceIoRemove("kernel.prx");
+    }
 
     if ((fp = fopen("FUSEID.BIN", "wb")) != NULL)
     {
         fwrite(&fuse, sizeof(uint64_t), 1, fp);
         fclose(fp);
     }
-    
-    snprintf(string, sizeof(string), "Fuse ID successfully dumped!\n%08lX %08lX", (uint32_t)(fuse & 0xFFFFFFFF), (uint32_t)(fuse >> 32));
+
+    snprintf(string, sizeof(string), "Fuse ID successfully dumped!\nFuse 90: 0x%08lX\nFuse 94: 0x%08lX", (uint32_t)(fuse & 0xFFFFFFFF), (uint32_t)(fuse >> 32));
 
     ShowMessageDialog(string);
 
